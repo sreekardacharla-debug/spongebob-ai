@@ -1,0 +1,49 @@
+# ==========================
+# SpongeBob AI — .gitignore
+# ==========================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment / Secrets
+.env
+.env.*
+
+# SQLite databases
+data/*.db
+
+# Datasets (too large for Git — use Git LFS or external storage)
+datasets/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Snapshots (managed by LKG system)
+snapshots/
+
+# Workspace (user project files)
+workspace/
+
+# Large generated files
+project_tree.txt
