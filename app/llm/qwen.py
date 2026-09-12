@@ -1,70 +1,36 @@
-import os
-from openai import OpenAI
+import boto3
+
+from app.llm.provider import LLMProvider
 
 
-class QwenClient:
-    """
-    Qwen model client for SpongeBob AI.
-
-    Uses the Hugging Face OpenAI-compatible router during development.
-    The backend can later be changed without changing the agent brain.
-    """
-
-    DEFAULT_BASE_URL = "https://router.huggingface.co/v1"
-    DEFAULT_MODEL = "Qwen/Qwen3-Coder-30B-A3B-Instruct:featherless-ai"
+class QwenProvider(LLMProvider):
 
     def __init__(
         self,
-        base_url: str | None = None,
-        model: str | None = None,
-        api_key: str | None = None,
+        region: str = "us-east-1",
+        model_id: str = "qwen.qwen3-coder-next",
     ):
-        self.base_url = (
-            base_url
-            or os.getenv("QWEN_BASE_URL")
-            or self.DEFAULT_BASE_URL
+        self.region = region
+        self.model_id = model_id
+
+        self.client = boto3.client(
+            "bedrock-runtime",
+            region_name=self.region,
         )
 
-        self.model = (
-            model
-            or os.getenv("QWEN_MODEL")
-            or self.DEFAULT_MODEL
+    def generate(self, prompt: str) -> str:
+        response = self.client.converse(
+            modelId=self.model_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "text": prompt,
+                        }
+                    ],
+                }
+            ],
         )
 
-        self.api_key = (
-            api_key
-            or os.getenv("HF_TOKEN")
-            or os.getenv("QWEN_API_KEY")
-        )
-
-        if not self.api_key:
-            raise RuntimeError(
-                "No Qwen API token configured. "
-                "Set HF_TOKEN or QWEN_API_KEY."
-            )
-
-        self.client = OpenAI(
-            base_url=self.base_url,
-            api_key=self.api_key,
-        )
-
-    def generate(
-        self,
-        messages: list[dict],
-        temperature: float = 0.2,
-        max_tokens: int = 2048,
-    ) -> str:
-
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-
-        content = response.choices[0].message.content
-
-        if not content:
-            raise RuntimeError("Qwen returned an empty response.")
-
-        return content
+        return response["output"]["message"]["content"][0]["text"]

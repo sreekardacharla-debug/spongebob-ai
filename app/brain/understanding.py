@@ -1,100 +1,114 @@
 import json
-from app.llm.qwen import QwenClient
+
+from app.llm.qwen import QwenProvider
 
 
-class UnderstandingEngine:
+qwen = QwenProvider()
 
-    def __init__(self, llm=None):
-        self.llm = llm or QwenClient()
 
-    def analyze(self, user_message: str, context: dict | None = None) -> dict:
+ALLOWED_INTENTS = {
+    "general_question",
+    "create_project",
+    "modify_project",
+    "debug_project",
+    "explain_code",
+    "run_project",
+    "other",
+}
 
-        context = context or {}
+ALLOWED_PROJECT_TYPES = {
+    "web_application",
+    "portfolio",
+    "ecommerce",
+    "dashboard",
+    "api",
+    "ai_application",
+    "data_application",
+    "mobile_application",
+    "desktop_application",
+    "cli_application",
+    "other",
+    "none",
+}
 
-        prompt = f"""
-You are the task-understanding layer of SpongeBob AI.
 
-Your job is NOT to execute the user's request.
-Your job is to understand what the user actually wants and determine
-whether SpongeBob should answer, ask a clarification question, plan,
-or prepare for execution.
+def understand_request(user_input: str) -> dict:
+    prompt = f"""
+You are the request-understanding component of SpongeBob AI.
 
-You are acting like a highly experienced software engineer.
+Analyze the user's request and return ONLY valid JSON.
 
-Current context:
-{json.dumps(context, indent=2)}
+Determine:
+
+1. intent
+2. project_type
+3. needs_requirements
+
+Possible intents:
+- general_question
+- create_project
+- modify_project
+- debug_project
+- explain_code
+- run_project
+- other
+
+Possible project types:
+- web_application
+- portfolio
+- ecommerce
+- dashboard
+- api
+- ai_application
+- data_application
+- mobile_application
+- desktop_application
+- cli_application
+- other
+- none
+
+needs_requirements must be true or false.
 
 User request:
-{user_message}
+{user_input}
 
-Return ONLY valid JSON using this exact structure:
+Return exactly:
 
 {{
-  "goal": "",
-  "task_type": "",
-  "summary": "",
-  "needs_clarification": false,
-  "clarification_questions": [],
-  "known_requirements": [],
-  "unknown_requirements": [],
-  "possible_tools": [],
-  "execution_ready": false,
-  "risk_level": "low"
+  "intent": "...",
+  "project_type": "...",
+  "needs_requirements": true
 }}
-
-Rules:
-
-1. Understand the user's actual goal, not just keywords.
-2. Do not blindly assume technologies or architecture.
-3. Ask clarification only when the missing information materially
-   changes the answer or implementation.
-4. Do not ask unnecessary questions for simple requests.
-5. For software projects, identify important missing decisions such as
-   frontend, backend, database, API, authentication, deployment,
-   or constraints only when relevant.
-6. Distinguish what the user explicitly said from what is unknown.
-7. Do not execute tools.
-8. Do not claim that anything has been created, changed, tested,
-   or completed.
 """
 
-        response = self.llm.generate(
-            [
-                {
-                    "role": "system",
-                    "content": "You are a precise task-understanding engine."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=0.1,
-            max_tokens=1500,
+    raw_result = qwen.generate(prompt)
+
+    try:
+        result = json.loads(raw_result)
+    except json.JSONDecodeError:
+        raise ValueError(
+            f"Qwen returned invalid JSON:\n{raw_result}"
         )
 
-        return self._parse_response(response)
+    intent = result.get("intent")
+    project_type = result.get("project_type")
+    needs_requirements = result.get("needs_requirements")
 
-    @staticmethod
-    def _parse_response(response: str) -> dict:
+    if intent not in ALLOWED_INTENTS:
+        raise ValueError(f"Invalid intent returned by Qwen: {intent}")
 
-        response = response.strip()
+    if project_type not in ALLOWED_PROJECT_TYPES:
+        raise ValueError(
+            f"Invalid project_type returned by Qwen: {project_type}"
+        )
 
-        if response.startswith("```"):
-            lines = response.splitlines()
+    if not isinstance(needs_requirements, bool):
+        raise ValueError(
+            "needs_requirements must be true or false"
+        )
 
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-
-            response = "\n".join(lines).strip()
-
-        try:
-            return json.loads(response)
-
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                "Qwen returned invalid understanding JSON."
-            ) from exc
+    return {
+        "intent": intent,
+        "project_type": project_type,
+        "needs_requirements": needs_requirements,
+    }

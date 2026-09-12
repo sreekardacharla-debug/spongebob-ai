@@ -1,318 +1,231 @@
 import json
 
-from app.llm.qwen import QwenClient
+from app.llm.qwen import QwenProvider
 
 
-class RequirementsManager:
+qwen = QwenProvider()
 
-    def __init__(self, llm=None):
-        self.llm = llm or QwenClient()
 
-    def extract_answer(
-        self,
-        question: str,
-        answer: str,
-        context: dict | None = None,
-    ) -> dict:
+VALID_ACTIONS = {
+    "ASK_USER",
+    "INFER",
+    "CHOOSE_FOR_USER",
+    "INSPECT_ENVIRONMENT",
+    "CONTINUE_PLANNING",
+}
 
-        context = context or {}
 
-        prompt = f"""
-You are the structured requirement extraction layer of SpongeBob AI.
+def analyze_requirements(
+    user_input: str,
+    project_type: str,
+    current_requirements: dict,
+    user_facts: dict | None = None,
+    delegated_decisions: list | None = None,
+    inferences: dict | None = None,
+    unknowns: list | None = None,
+    blocking_unknowns: list | None = None,
+) -> dict:
 
-Clarification question:
-{question}
+    user_facts = user_facts or {}
+    delegated_decisions = delegated_decisions or []
+    inferences = inferences or {}
+    unknowns = unknowns or []
+    blocking_unknowns = blocking_unknowns or []
 
-User answer:
-{answer}
+    prompt = f"""
+You are the Goal and Decision Reasoner for SpongeBob AI.
 
-Current project context:
-{json.dumps(context, indent=2)}
+Your job is to determine whether SpongeBob has enough information
+to continue toward implementation.
 
-Return ONLY valid JSON:
+You are NOT a questionnaire.
 
-{{
-  "field": "",
-  "value": "",
-  "confidence": "high",
-  "additional_requirements": [],
-  "still_unknown": []
-}}
+IMPORTANT:
 
-Rules:
-1. Extract only information supported by the answer.
-2. Do not invent missing details.
-3. Use stable field names such as:
-   project_purpose
-   target_users
-   core_features
-   frontend
-   backend
-   database
-   authentication
-   deployment
-   integrations
-   constraints
-4. If multiple requirements are stated, put additional ones in
-   additional_requirements.
-5. Do not treat an unanswered question as answered.
-"""
+1. Never invent something the user did not say and label it as a
+   user requirement.
 
-        response = self.llm.generate(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "Extract structured software "
-                        "requirements accurately."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            temperature=0.0,
-            max_tokens=800,
-        )
+2. Separate information into:
+   - USER_STATED
+   - USER_DELEGATED
+   - INFERRED
+   - UNKNOWN
 
-        return self._parse_response(response)
+3. Technical decisions can usually be made by SpongeBob later.
 
-    def assess_readiness(
-        self,
-        context: dict,
-    ) -> dict:
+4. Do not ask about frameworks, libraries, databases, architecture,
+   styling, folder structure, or implementation details unless they
+   are genuinely blocking progress.
 
-        prompt = f"""
-You are the senior engineering readiness evaluator for SpongeBob AI.
+5. Missing personal content does NOT automatically block technical
+   planning.
 
-Your job is to decide whether enough information is known to move
-from requirements discovery into ARCHITECTURAL decisions.
+   Example:
+   "Build me a portfolio website."
 
-Current project context:
-{json.dumps(context, indent=2)}
+   The user's name, biography, projects, images, etc. may be unknown,
+   but SpongeBob can still design and scaffold the application using
+   placeholders.
 
-Return ONLY valid JSON:
+6. A missing item is BLOCKING only when SpongeBob cannot reasonably
+   proceed toward the user's goal without it.
 
-{{
-  "readiness": "NOT_READY",
-  "reason": "",
-  "missing_critical_information": [],
-  "recommended_next_area": ""
-}}
+7. If the user explicitly delegates a decision to SpongeBob, mark it
+   as USER_DELEGATED.
 
-Allowed readiness values:
+8. If SpongeBob can safely choose a technical decision itself,
+   use CHOOSE_FOR_USER.
 
-"NOT_READY"
-    A missing requirement could materially change the architecture,
-    product design, or engineering approach.
+9. If the environment needs to be inspected before deciding something,
+   use INSPECT_ENVIRONMENT.
 
-"READY_FOR_ARCHITECTURE"
-    The product purpose, core functionality, and primary users are
-    sufficiently understood to begin discussing technical architecture.
+10. If something can be derived safely from existing information,
+    use INFER.
 
-"READY_FOR_EXECUTION"
-    Major requirements and consequential technical decisions have
-    already been confirmed.
+11. If there are no genuinely blocking unknowns, use
+    CONTINUE_PLANNING.
 
-Rules:
-1. Do not demand every possible detail.
-2. Product purpose must be understood.
-3. Core functionality must be understood.
-4. Primary target users must be known before declaring
-   READY_FOR_ARCHITECTURE unless users genuinely do not affect
-   the architecture.
-5. Do not treat technical stack choices as already decided.
-6. Do not use a user-requirement question as a "technical decision."
-7. recommended_next_area must be a REAL technical/architectural area,
-   such as:
-   frontend_framework
-   backend_framework
-   database
-   authentication
-   deployment
-   architecture
-8. If a critical user/product requirement is missing, return
-   NOT_READY instead.
-"""
+12. If a genuinely user-specific decision is required and cannot be
+    reasonably deferred, use ASK_USER.
 
-        response = self.llm.generate(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "You evaluate software-project readiness "
-                        "from a senior engineering perspective."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            temperature=0.0,
-            max_tokens=800,
-        )
+13. The fields MUST be logically consistent.
 
-        return self._parse_response(response)
+    If blocking_unknowns is not empty:
+        requirements_complete MUST be false.
 
-    def determine_next_step(
-        self,
-        understanding: dict,
-        context: dict | None = None,
-    ) -> dict:
+    If requirements_complete is false:
+        action MUST NOT be CONTINUE_PLANNING unless the blocking
+        unknown can actually be resolved by another action.
 
-        context = context or {}
+    If there are no blocking unknowns:
+        requirements_complete should normally be true and action
+        should normally be CONTINUE_PLANNING.
 
-        readiness = self.assess_readiness(
-            context
-        )
+14. Do not add optional features such as blogs, testimonials,
+    authentication, SEO, analytics, dark mode, etc. unless the user
+    requests them or they become necessary for the goal.
 
-        readiness_value = readiness.get(
-            "readiness",
-            "NOT_READY",
-        )
+USER REQUEST:
+{user_input}
 
-        if readiness_value == "READY_FOR_ARCHITECTURE":
+PROJECT TYPE:
+{project_type}
 
-            decision_area = (
-                readiness.get(
-                    "recommended_next_area"
-                )
-                or "architecture"
-            )
+CURRENT REQUIREMENTS:
+{json.dumps(current_requirements, indent=2)}
 
-            return {
-                "action": "recommend",
-                "question": "",
-                "reason": readiness.get(
-                    "reason",
-                    "Enough information is available to begin architecture decisions.",
-                ),
-                "priority": "high",
-                "blocks_execution": True,
-                "decision_area": decision_area,
-                "confirmed_information": context.get(
-                    "known_requirements",
-                    [],
-                ),
-                "new_unknowns": readiness.get(
-                    "missing_critical_information",
-                    [],
-                ),
-                "readiness": "READY_FOR_ARCHITECTURE",
-            }
+KNOWN USER FACTS:
+{json.dumps(user_facts, indent=2)}
 
-        if readiness_value == "READY_FOR_EXECUTION":
+DELEGATED DECISIONS:
+{json.dumps(delegated_decisions, indent=2)}
 
-            return {
-                "action": "proceed",
-                "question": "",
-                "reason": (
-                    "Major requirements and technical decisions "
-                    "are sufficiently established for execution planning."
-                ),
-                "priority": "high",
-                "blocks_execution": False,
-                "decision_area": "",
-                "confirmed_information": context.get(
-                    "known_requirements",
-                    [],
-                ),
-                "new_unknowns": [],
-                "readiness": "READY_FOR_EXECUTION",
-            }
+PREVIOUS INFERENCES:
+{json.dumps(inferences, indent=2)}
 
-        prompt = f"""
-You are SpongeBob AI's adaptive requirements-management layer.
+KNOWN UNKNOWNS:
+{json.dumps(unknowns, indent=2)}
 
-Act like a highly experienced software engineer working with a real client.
+PREVIOUS BLOCKING UNKNOWNS:
+{json.dumps(blocking_unknowns, indent=2)}
 
-Your job is to ask the NEXT most valuable question only when necessary.
+Return ONLY valid JSON.
 
-Understanding:
-{json.dumps(understanding, indent=2)}
-
-Project context:
-{json.dumps(context, indent=2)}
-
-Return ONLY valid JSON:
+Use exactly this structure:
 
 {{
-  "action": "clarify",
-  "question": "",
-  "reason": "",
-  "priority": "high",
-  "blocks_execution": true,
-  "decision_area": "",
-  "confirmed_information": [],
-  "new_unknowns": [],
-  "readiness": "NOT_READY"
+    "goal": "",
+    "user_facts": {{}},
+    "delegated_decisions": [],
+    "inferences": {{}},
+    "unknowns": [],
+    "blocking_unknowns": [],
+    "action": "CONTINUE_PLANNING",
+    "requirements_complete": true,
+    "next_question": "",
+    "requirements": {{}},
+    "reasoning": ""
 }}
-
-Rules:
-1. Ask at most ONE question.
-2. Ask only what materially changes the next engineering decision.
-3. Never ask for information already confirmed.
-4. Never silently invent important requirements.
-5. Do not ask for details that can safely be decided later.
-6. Do not ask for information that can be discovered from the
-   user's project or environment.
-7. Prefer progressive discovery.
-8. If target users materially affect the product, ask for them
-   before technical architecture decisions.
 """
 
-        response = self.llm.generate(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an adaptive requirements manager "
-                        "for a senior software-engineering agent."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            temperature=0.1,
-            max_tokens=1200,
+    raw_result = qwen.generate(prompt)
+
+    try:
+        result = json.loads(raw_result)
+    except json.JSONDecodeError:
+        raise ValueError(
+            f"Qwen returned invalid JSON:\n{raw_result}"
         )
 
-        result = self._parse_response(
-            response
+    action = result.get("action")
+
+    if action not in VALID_ACTIONS:
+        raise ValueError(
+            f"Invalid action returned by Qwen: {action}"
         )
 
-        result["readiness"] = "NOT_READY"
+    requirements_complete = result.get("requirements_complete")
 
-        return result
+    if not isinstance(requirements_complete, bool):
+        raise ValueError(
+            "requirements_complete must be true or false"
+        )
 
-    @staticmethod
-    def _parse_response(
-        response: str,
-    ) -> dict:
+    next_question = result.get("next_question", "")
 
-        response = response.strip()
+    if not isinstance(next_question, str):
+        raise ValueError(
+            "next_question must be a string"
+        )
 
-        if response.startswith("```"):
-            lines = response.splitlines()
+    final_blocking_unknowns = result.get(
+        "blocking_unknowns",
+        [],
+    )
 
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
+    # Enforce consistency between blocking unknowns and completeness.
+    if final_blocking_unknowns:
+        requirements_complete = False
 
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
+        if action == "CONTINUE_PLANNING":
+            action = "ASK_USER"
 
-            response = "\n".join(
-                lines
-            ).strip()
+    else:
+        requirements_complete = True
 
-        try:
-            return json.loads(response)
+        if action == "ASK_USER":
+            action = "CONTINUE_PLANNING"
 
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                "Qwen returned invalid requirements JSON."
-            ) from exc
+            next_question = ""
+
+    return {
+        "goal": result.get("goal", ""),
+        "user_facts": result.get(
+            "user_facts",
+            {},
+        ),
+        "delegated_decisions": result.get(
+            "delegated_decisions",
+            [],
+        ),
+        "inferences": result.get(
+            "inferences",
+            {},
+        ),
+        "unknowns": result.get(
+            "unknowns",
+            [],
+        ),
+        "blocking_unknowns": final_blocking_unknowns,
+        "action": action,
+        "requirements_complete": requirements_complete,
+        "next_question": next_question,
+        "requirements": result.get(
+            "requirements",
+            {},
+        ),
+        "reasoning": result.get(
+            "reasoning",
+            "",
+        ),
+    }
