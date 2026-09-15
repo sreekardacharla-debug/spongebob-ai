@@ -1,18 +1,15 @@
 import json
 import re
 
-from app.llm.qwen import QwenProvider
+from app.llm.router import ModelRouter
 
 
-qwen = QwenProvider()
+router = ModelRouter()
 
 
 def _extract_json(raw_result: str) -> dict:
     """
     Extract a JSON object from the model response.
-
-    The model is instructed to return JSON only, but this boundary
-    protects the planner from harmless surrounding text.
     """
 
     text = raw_result.strip()
@@ -43,8 +40,6 @@ def _extract_json(raw_result: str) -> dict:
 def _validate_plan_consistency(result: dict) -> None:
     """
     Validate important consistency rules in the architecture plan.
-
-    Raises ValueError if the planner contradicts itself.
     """
 
     summary = result.get("architecture_summary", "").lower()
@@ -72,6 +67,64 @@ def _validate_plan_consistency(result: dict) -> None:
             "Planner contradiction: plan says single-page but "
             "creates multiple HTML pages."
         )
+
+
+def _validate_user_claims(
+    result: dict,
+    user_facts: dict,
+    delegated_decisions: list,
+) -> None:
+    """
+    Prevent the planner from inventing user preferences,
+    permissions, capabilities, or decisions.
+    """
+
+    text_parts = [
+        result.get("architecture_summary", ""),
+        result.get("frontend", {}).get("reason", ""),
+        result.get("backend", {}).get("reason", ""),
+        result.get("database", {}).get("reason", ""),
+        *result.get("agent_decisions", []),
+        *result.get("assumptions", []),
+    ]
+
+    generated_text = " ".join(
+        str(part) for part in text_parts
+    ).lower()
+
+    user_fact_text = json.dumps(
+        user_facts,
+        ensure_ascii=False,
+    ).lower()
+
+    delegated_text = json.dumps(
+        delegated_decisions,
+        ensure_ascii=False,
+    ).lower()
+
+    suspicious_patterns = [
+        "the user prefers",
+        "user prefers",
+        "the user is comfortable",
+        "user is comfortable",
+        "the user permits",
+        "user permits",
+        "the user can host",
+        "user can host",
+        "the user wants",
+        "user wants",
+    ]
+
+    for pattern in suspicious_patterns:
+        if pattern in generated_text:
+            if (
+                pattern not in user_fact_text
+                and pattern not in delegated_text
+            ):
+                raise ValueError(
+                    "Planner invented an unsupported user claim: "
+                    f"{pattern!r}"
+                )
 
 
 def create_architecture_plan(
@@ -341,17 +394,17 @@ Do not use quotation marks inside JSON strings unless they are
 properly escaped.
 """
 
-raw_result = qwen.generate(prompt)
+    raw_result = router.generate(prompt)
 
-result = _extract_json(raw_result)
+    result = _extract_json(raw_result)
 
-_validate_plan_consistency(result)
+    _validate_plan_consistency(result)
 
-_validate_user_claims(
-    result,
-    user_facts,
-    delegated_decisions,
-)
+    _validate_user_claims(
+        result,
+        user_facts,
+        delegated_decisions,
+    )
 
     required_keys = {
         "architecture_summary",
@@ -379,56 +432,3 @@ _validate_user_claims(
         )
 
     return result
-def _validate_user_claims(
-    result: dict,
-    user_facts: dict,
-    delegated_decisions: list,
-) -> None:
-    """
-    Prevent the planner from inventing user preferences,
-    permissions, capabilities, or decisions.
-    """
-
-    text_parts = [
-        result.get("architecture_summary", ""),
-        result.get("frontend", {}).get("reason", ""),
-        result.get("backend", {}).get("reason", ""),
-        result.get("database", {}).get("reason", ""),
-        *result.get("agent_decisions", []),
-        *result.get("assumptions", []),
-    ]
-
-    generated_text = " ".join(
-        str(part) for part in text_parts
-    ).lower()
-
-    user_fact_text = json.dumps(
-        user_facts,
-        ensure_ascii=False,
-    ).lower()
-
-    delegated_text = json.dumps(
-        delegated_decisions,
-        ensure_ascii=False,
-    ).lower()
-
-    suspicious_patterns = [
-        "the user prefers",
-        "user prefers",
-        "the user is comfortable",
-        "user is comfortable",
-        "the user permits",
-        "user permits",
-        "the user can host",
-        "user can host",
-        "the user wants",
-        "user wants",
-    ]
-
-    for pattern in suspicious_patterns:
-        if pattern in generated_text:
-            if pattern not in user_fact_text and pattern not in delegated_text:
-                raise ValueError(
-                    "Planner invented an unsupported user claim: "
-                    f"{pattern!r}"
-                )

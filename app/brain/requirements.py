@@ -1,9 +1,9 @@
 import json
 
-from app.llm.qwen import QwenProvider
+from app.llm.router import ModelRouter
 
 
-qwen = QwenProvider()
+router = ModelRouter()
 
 
 VALID_ACTIONS = {
@@ -148,7 +148,7 @@ Use exactly this structure:
 }}
 """
 
-    raw_result = qwen.generate(prompt)
+    raw_result = router.generate(prompt)
 
     try:
         result = json.loads(raw_result)
