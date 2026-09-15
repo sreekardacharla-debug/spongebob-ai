@@ -1,0 +1,9 @@
+boto3
+botocore[crt]
+python-dotenv
+requests
+rich
+langchain
+langgraph
+langsmith
+snowflake-connector-python
