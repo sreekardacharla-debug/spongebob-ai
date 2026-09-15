@@ -1,46 +1,62 @@
 from app.agent.graph import build_graph
 
 
-def main():
-    agent = build_graph()
-
-    config = {
-        "configurable": {
-            "thread_id": "test-user-1"
-        }
-    }
-
-    # First message
-    result = agent.invoke(
-        {
-            "user_input": "Build me a portfolio website",
-            "response": "",
-            "intent": "",
-            "project_type": "",
-            "needs_requirements": False,
-            "requirements": {},
-            "requirements_complete": False,
-            "next_question": "",
-        },
-        config,
-    )
-
-    print("\n--- Turn 1 ---")
-    print("SpongeBob:", result["response"])
-    print("Requirements:", result["requirements"])
-
-    # Second message
-    result = agent.invoke(
-        {
-            "user_input": "I want About, Skills, Projects and Contact sections",
-        },
-        config,
-    )
-
-    print("\n--- Turn 2 ---")
-    print("SpongeBob:", result["response"])
-    print("Requirements:", result["requirements"])
+graph = build_graph()
 
 
-if __name__ == "__main__":
-    main()
+initial_state = {
+    "user_input": "Build me a portfolio website",
+    "response": "",
+
+    "intent": "",
+    "project_type": "",
+    "needs_requirements": False,
+
+    "goal": "",
+    "requirements": {},
+    "user_facts": {},
+    "delegated_decisions": [],
+    "inferences": {},
+
+    "unknowns": [],
+    "blocking_unknowns": [],
+
+    "requirements_complete": False,
+    "next_question": "",
+    "next_action": "",
+    "reasoning": "",
+
+    "decision_history": [],
+
+    "project_context": {},
+    "environment_context": {},
+
+    "architecture_plan": {},
+
+    "execution_results": [],
+    "execution_errors": [],
+
+    "validation_results": [],
+    "validation_passed": False,
+}
+
+
+result = graph.invoke( initial_state, config={"configurable": {"thread_id": "test-session-1"}})
+
+print("\n===== SPONGEBOB AI RESULT =====\n")
+
+print("Intent:")
+print(result["intent"])
+
+print("\nProject type:")
+print(result["project_type"])
+
+print("\nRequirements complete:")
+print(result["requirements_complete"])
+
+print("\nResponse:")
+print(result["response"])
+
+if result["architecture_plan"]:
+    print("\nArchitecture plan:")
+    print(result["architecture_plan"])

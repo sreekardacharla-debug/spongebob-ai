@@ -5,7 +5,7 @@ from app.project.inspector import inspect_project
 from app.project.environment import inspect_environment
 
 
-PROJECT_ROOT = r"C:\Users\sreek\SpongeBob AI"
+PROJECT_ROOT = "/workspaces/spongebob-ai"
 
 
 project_context = inspect_project(PROJECT_ROOT)
