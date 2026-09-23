@@ -16,9 +16,12 @@ from app.agent.fix_executor import execute_fix_plan
 from app.project.inspector import inspect_project
 from app.project.environment import inspect_environment
 from app.project.snapshot import ProjectSnapshot
+from app.memory.decision_history import DecisionHistory
 
 
 MAX_RETRIES = 2
+
+decision_history = DecisionHistory()
 
 
 def understand(state: AgentState):
@@ -33,7 +36,7 @@ def route_request(state: AgentState):
 
 
 def requirements(state: AgentState):
-    return analyze_requirements(
+    result = analyze_requirements(
         user_input=state["user_input"],
         project_type=state["project_type"],
         current_requirements=state["requirements"],
@@ -43,6 +46,11 @@ def requirements(state: AgentState):
         unknowns=state["unknowns"],
         blocking_unknowns=state["blocking_unknowns"],
     )
+
+    return {
+        **result,
+        "decision_history": decision_history.all(),
+    }
 
 
 def route_after_requirements(state: AgentState):
