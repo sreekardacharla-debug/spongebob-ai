@@ -47,9 +47,13 @@ def requirements(state: AgentState):
         blocking_unknowns=state["blocking_unknowns"],
     )
 
+    # analyze_requirements currently owns the session history object.
+    # Mirror it into graph state so downstream nodes can consume it.
+    from app.brain.requirements import decision_history as requirements_history
+
     return {
         **result,
-        "decision_history": decision_history.all(),
+        "decision_history": requirements_history.all(),
     }
 
 
