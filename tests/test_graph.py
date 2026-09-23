@@ -61,3 +61,55 @@ def test_initial_success_does_not_require_snapshot_promotion():
     result = graph_module.route_after_validation(state)
 
     assert result == "finish"
+
+
+def test_requirements_node_returns_decision_history(monkeypatch):
+    from app.agent import graph as graph_module
+
+    graph_module.decision_history.clear()
+    graph_module.decision_history.add(
+        "frontend",
+        "React",
+        source="user",
+    )
+
+    monkeypatch.setattr(
+        graph_module,
+        "analyze_requirements",
+        lambda **kwargs: {
+            "goal": "Build app",
+            "user_facts": {},
+            "delegated_decisions": [],
+            "inferences": {},
+            "unknowns": [],
+            "blocking_unknowns": [],
+            "action": "CONTINUE_PLANNING",
+            "requirements_complete": True,
+            "next_question": "",
+            "requirements": {},
+            "reasoning": "Enough information.",
+        },
+    )
+
+    state = {
+        "user_input": "Build an app",
+        "project_type": "web_application",
+        "requirements": {},
+        "user_facts": {},
+        "delegated_decisions": [],
+        "inferences": {},
+        "unknowns": [],
+        "blocking_unknowns": [],
+        "decision_history": [],
+    }
+
+    result = graph_module.requirements(state)
+
+    assert result["decision_history"] == [
+        {
+            "decision": "frontend",
+            "value": "React",
+            "source": "user",
+            "timestamp": result["decision_history"][0]["timestamp"],
+        }
+    ]
