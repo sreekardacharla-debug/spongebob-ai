@@ -1,9 +1,17 @@
 import json
 
-from app.llm.router import ModelRouter
+from app.llm.service import ModelService
+from app.security.identity import Identity
 
 
-router = ModelRouter()
+identity = Identity(
+    user_id="owner",
+    principal="owner",
+)
+
+model_service = ModelService(
+    identity=identity,
+)
 
 
 ALLOWED_INTENTS = {
@@ -81,7 +89,7 @@ Return exactly:
 }}
 """
 
-    raw_result = router.generate(prompt)
+    raw_result = model_service.generate(prompt)
 
     try:
         result = json.loads(raw_result)
@@ -95,7 +103,9 @@ Return exactly:
     needs_requirements = result.get("needs_requirements")
 
     if intent not in ALLOWED_INTENTS:
-        raise ValueError(f"Invalid intent returned by Qwen: {intent}")
+        raise ValueError(
+            f"Invalid intent returned by Qwen: {intent}"
+        )
 
     if project_type not in ALLOWED_PROJECT_TYPES:
         raise ValueError(

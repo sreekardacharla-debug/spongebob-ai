@@ -1,9 +1,20 @@
 import json
 
-from app.llm.router import ModelRouter
+from app.llm.service import ModelService
+from app.security.identity import Identity
+from app.memory.decision_history import DecisionHistory
 
 
-router = ModelRouter()
+identity = Identity(
+    user_id="owner",
+    principal="owner",
+)
+
+model_service = ModelService(
+    identity=identity,
+)
+
+decision_history = DecisionHistory()
 
 
 VALID_ACTIONS = {
@@ -148,7 +159,7 @@ Use exactly this structure:
 }}
 """
 
-    raw_result = router.generate(prompt)
+    raw_result = model_service.generate(prompt)
 
     try:
         result = json.loads(raw_result)
@@ -164,14 +175,19 @@ Use exactly this structure:
             f"Invalid action returned by Qwen: {action}"
         )
 
-    requirements_complete = result.get("requirements_complete")
+    requirements_complete = result.get(
+        "requirements_complete"
+    )
 
     if not isinstance(requirements_complete, bool):
         raise ValueError(
             "requirements_complete must be true or false"
         )
 
-    next_question = result.get("next_question", "")
+    next_question = result.get(
+        "next_question",
+        "",
+    )
 
     if not isinstance(next_question, str):
         raise ValueError(
@@ -195,8 +211,35 @@ Use exactly this structure:
 
         if action == "ASK_USER":
             action = "CONTINUE_PLANNING"
-
             next_question = ""
+
+    for decision, value in result.get("user_facts", {}).items():
+        decision_history.add(
+            decision=decision,
+            value=str(value),
+            source="user",
+        )
+
+    for decision in result.get("delegated_decisions", []):
+        decision_history.add(
+            decision=str(decision),
+            value="delegated to SpongeBob",
+            source="user_delegated",
+        )
+
+    for decision, value in result.get("inferences", {}).items():
+        decision_history.add(
+            decision=decision,
+            value=str(value),
+            source="inferred",
+        )
+
+    for decision, value in result.get("requirements", {}).items():
+        decision_history.add(
+            decision=decision,
+            value=str(value),
+            source="requirement",
+        )
 
     return {
         "goal": result.get("goal", ""),

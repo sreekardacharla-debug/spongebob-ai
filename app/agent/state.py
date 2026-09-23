@@ -31,12 +31,18 @@ class AgentState(TypedDict):
     # Decision history
     decision_history: list
 
+    # Project workspace
+    project_root: str
+
     # Project/environment context
     project_context: dict
     environment_context: dict
 
     # Architecture planning
     architecture_plan: dict
+
+    # Last-Known-Good snapshot
+    snapshot_path: str
 
     # Execution
     execution_results: list
@@ -45,3 +51,12 @@ class AgentState(TypedDict):
     # Validation
     validation_results: list
     validation_passed: bool
+
+    # Diagnosis
+    diagnosis: dict
+
+    # Automatic fix
+    fix_plan: dict
+
+    # Automatic repair attempts
+    retry_count: int

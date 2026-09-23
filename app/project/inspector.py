@@ -1,7 +1,6 @@
 from pathlib import Path
 
 
-# Directories/files that should not be inspected recursively.
 IGNORED_DIRECTORIES = {
     ".git",
     ".venv",
@@ -14,12 +13,19 @@ def inspect_project(project_root: str) -> dict:
     """
     Inspect the local project without modifying anything.
 
-    Returns information about:
-    - project root
-    - files
-    - directories
-    - likely project types
-    - important configuration files
+    Detects:
+    - files and directories
+    - JavaScript/Node projects
+    - Python projects
+    - Vite
+    - Next.js
+    - Java
+    - Spring Boot
+    - Maven
+    - Gradle
+    - MySQL
+    - PostgreSQL
+    - Docker
     """
 
     root = Path(project_root).resolve()
@@ -40,8 +46,10 @@ def inspect_project(project_root: str) -> dict:
     for path in root.rglob("*"):
         relative = path.relative_to(root)
 
-        # Skip anything inside ignored directories.
-        if any(part in IGNORED_DIRECTORIES for part in relative.parts):
+        if any(
+            part in IGNORED_DIRECTORIES
+            for part in relative.parts
+        ):
             continue
 
         if path.is_file():
@@ -58,6 +66,9 @@ def inspect_project(project_root: str) -> dict:
         "requirements.txt",
         "pyproject.toml",
         "Pipfile",
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
         "Dockerfile",
         "docker-compose.yml",
         "docker-compose.yaml",
@@ -68,40 +79,159 @@ def inspect_project(project_root: str) -> dict:
         "vite.config.ts",
         "next.config.js",
         "next.config.ts",
+        "application.properties",
+        "application.yml",
+        "application.yaml",
         "manage.py",
     }
 
     detected_files = sorted(
-        file for file in files
+        file
+        for file in files
         if Path(file).name in important_files
     )
 
     project_types = []
 
-    if "package.json" in detected_files:
+    file_names = {
+        Path(file).name
+        for file in files
+    }
+
+    file_suffixes = {
+        Path(file).suffix.lower()
+        for file in files
+    }
+
+    # JavaScript / Node
+    if "package.json" in file_names:
         project_types.append("javascript_or_node")
 
+    # Python
     if (
-        "requirements.txt" in detected_files
-        or "pyproject.toml" in detected_files
-        or "Pipfile" in detected_files
-        or "manage.py" in detected_files
+        "requirements.txt" in file_names
+        or "pyproject.toml" in file_names
+        or "Pipfile" in file_names
+        or "manage.py" in file_names
+        or ".py" in file_suffixes
     ):
         project_types.append("python")
 
+    # Vite
     if (
-        "vite.config.js" in detected_files
-        or "vite.config.ts" in detected_files
+        "vite.config.js" in file_names
+        or "vite.config.ts" in file_names
     ):
         project_types.append("vite")
 
+    # Next.js
     if (
-        "next.config.js" in detected_files
-        or "next.config.ts" in detected_files
+        "next.config.js" in file_names
+        or "next.config.ts" in file_names
     ):
         project_types.append("nextjs")
 
-    if "Dockerfile" in detected_files:
+    # Java
+    if ".java" in file_suffixes:
+        project_types.append("java")
+
+    # Maven
+    if "pom.xml" in file_names:
+        project_types.append("maven")
+
+    # Gradle
+    if (
+        "build.gradle" in file_names
+        or "build.gradle.kts" in file_names
+    ):
+        project_types.append("gradle")
+
+    # Spring Boot
+    spring_detected = False
+
+    for file in files:
+        path = root / file
+
+        if path.name in {
+            "pom.xml",
+            "build.gradle",
+            "build.gradle.kts",
+            "application.properties",
+            "application.yml",
+            "application.yaml",
+        }:
+            try:
+                content = path.read_text(
+                    encoding="utf-8",
+                    errors="ignore",
+                ).lower()
+
+                if (
+                    "spring-boot" in content
+                    or "springframework" in content
+                    or "spring.datasource" in content
+                ):
+                    spring_detected = True
+
+            except OSError:
+                pass
+
+    if spring_detected:
+        project_types.append("spring_boot")
+
+    # Database detection
+    mysql_detected = False
+    postgres_detected = False
+
+    database_files = {
+        "application.properties",
+        "application.yml",
+        "application.yaml",
+        ".env",
+        "docker-compose.yml",
+        "docker-compose.yaml",
+    }
+
+    for file in files:
+        path = root / file
+
+        if path.name not in database_files:
+            continue
+
+        try:
+            content = path.read_text(
+                encoding="utf-8",
+                errors="ignore",
+            ).lower()
+
+            if (
+                "mysql" in content
+                or "jdbc:mysql" in content
+            ):
+                mysql_detected = True
+
+            if (
+                "postgres" in content
+                or "postgresql" in content
+                or "jdbc:postgresql" in content
+            ):
+                postgres_detected = True
+
+        except OSError:
+            pass
+
+    if mysql_detected:
+        project_types.append("mysql")
+
+    if postgres_detected:
+        project_types.append("postgresql")
+
+    # Docker
+    if (
+        "Dockerfile" in file_names
+        or "docker-compose.yml" in file_names
+        or "docker-compose.yaml" in file_names
+    ):
         project_types.append("docker")
 
     return {

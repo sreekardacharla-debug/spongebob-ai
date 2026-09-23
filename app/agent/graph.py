@@ -1,57 +1,39 @@
-from pathlib import Path
-
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.agent.state import AgentState
+
 from app.brain.understanding import understand_request
 from app.brain.requirements import analyze_requirements
 from app.brain.planner import create_architecture_plan
+
+from app.agent.implementation import execute_implementation
+from app.agent.validation import validate_execution
+from app.agent.diagnosis import diagnose_failure
+from app.agent.fix import create_fix_plan
+from app.agent.fix_executor import execute_fix_plan
+
 from app.project.inspector import inspect_project
 from app.project.environment import inspect_environment
+from app.project.snapshot import ProjectSnapshot
 
 
-def understand(state: AgentState) -> AgentState:
-    """
-    Understand and classify the user's request.
-    """
-
-    if state["intent"]:
-        return state
-
-    result = understand_request(
-        state["user_input"]
-    )
-
-    return {
-        **state,
-        "intent": result["intent"],
-        "project_type": result["project_type"],
-        "needs_requirements": result["needs_requirements"],
-    }
+MAX_RETRIES = 2
 
 
-def route_request(state: AgentState) -> str:
-    """
-    Decide which workflow should handle the request.
-    """
+def understand(state: AgentState):
+    return understand_request(state)
 
-    if state["intent"] == "create_project":
-        return "requirements"
 
-    if state["intent"] == "general_question":
+def route_request(state: AgentState):
+    if state["intent"] == "general":
         return "general"
 
-    return "other"
+    return "requirements"
 
 
-def requirements(state: AgentState) -> AgentState:
-    """
-    Analyze requirements and determine whether
-    more information is needed.
-    """
-
-    result = analyze_requirements(
+def requirements(state: AgentState):
+    return analyze_requirements(
         user_input=state["user_input"],
         project_type=state["project_type"],
         current_requirements=state["requirements"],
@@ -62,51 +44,16 @@ def requirements(state: AgentState) -> AgentState:
         blocking_unknowns=state["blocking_unknowns"],
     )
 
-    return {
-        **state,
 
-        "goal": result["goal"],
-        "user_facts": result["user_facts"],
-        "delegated_decisions": result["delegated_decisions"],
-        "inferences": result["inferences"],
-
-        "unknowns": result["unknowns"],
-        "blocking_unknowns": result["blocking_unknowns"],
-
-        "requirements": result["requirements"],
-        "requirements_complete": result["requirements_complete"],
-        "next_question": result["next_question"],
-
-        "next_action": result["action"],
-        "reasoning": result["reasoning"],
-
-        "response": (
-            result["next_question"]
-            if result["next_question"]
-            else result["reasoning"]
-        ),
-    }
-
-
-def route_after_requirements(state: AgentState) -> str:
-    """
-    Continue to planning only when enough requirements
-    are available.
-    """
-
+def route_after_requirements(state: AgentState):
     if state["requirements_complete"]:
         return "planner"
 
-    return "finish"
+    return END
 
 
-def planner(state: AgentState) -> AgentState:
-    """
-    Inspect the current project/environment and create
-    an architecture plan.
-    """
-
-    project_root = str(Path.cwd())
+def planner(state: AgentState):
+    project_root = state["project_root"]
 
     project_context = inspect_project(
         project_root
@@ -126,7 +73,6 @@ def planner(state: AgentState) -> AgentState:
     )
 
     return {
-        **state,
         "project_context": project_context,
         "environment_context": environment_context,
         "architecture_plan": architecture_plan,
@@ -134,36 +80,182 @@ def planner(state: AgentState) -> AgentState:
     }
 
 
-def general_response(state: AgentState) -> AgentState:
-    """
-    Handle general questions for now.
-    """
+def implementation(state: AgentState):
+    project_root = state["project_root"]
+
+    # Create a Last-Known-Good snapshot BEFORE
+    # making implementation changes.
+    snapshot_manager = ProjectSnapshot(
+        project_root
+    )
+
+    snapshot_path = snapshot_manager.create()
+
+    execution_results, execution_errors = (
+        execute_implementation(
+            architecture_plan=state["architecture_plan"],
+            workspace=project_root,
+            project_context=state["project_context"],
+            environment_context=state["environment_context"],
+        )
+    )
 
     return {
-        **state,
-        "response": "This is a general question.",
+        "execution_results": execution_results,
+        "execution_errors": execution_errors,
+        "snapshot_path": snapshot_path,
+        "response": "Implementation completed.",
     }
 
 
-def other_response(state: AgentState) -> AgentState:
-    """
-    Handle unsupported request types for now.
-    """
+def validation(state: AgentState):
+    validation_results, validation_passed = (
+        validate_execution(
+            project_root=state["project_root"],
+            execution_results=state["execution_results"],
+        )
+    )
+
+    if validation_passed:
+        response = (
+            "Implementation completed and "
+            "validation passed."
+        )
+    else:
+        response = (
+            "Implementation completed, "
+            "but validation failed."
+        )
 
     return {
-        **state,
+        "validation_results": validation_results,
+        "validation_passed": validation_passed,
+        "response": response,
+    }
+
+
+def promote_snapshot(state: AgentState):
+    """
+    Create a new Last-Known-Good snapshot after
+    an automatic repair has successfully validated.
+    """
+
+    snapshot_manager = ProjectSnapshot(
+        state["project_root"]
+    )
+
+    snapshot_path = snapshot_manager.create()
+
+    return {
+        "snapshot_path": snapshot_path,
         "response": (
-            "I understood your request, but this flow "
-            "is not implemented yet."
+            "Automatic fix validated. "
+            "New Last-Known-Good snapshot created."
         ),
     }
 
 
-def build_graph():
+def diagnosis(state: AgentState):
+    diagnosis_result = diagnose_failure(
+        architecture_plan=state["architecture_plan"],
+        execution_results=state["execution_results"],
+        execution_errors=state["execution_errors"],
+        validation_results=state["validation_results"],
+    )
+
+    return {
+        "diagnosis": diagnosis_result,
+        "response": "Implementation failure diagnosed.",
+    }
+
+
+def fix_planner(state: AgentState):
+    fix_plan = create_fix_plan(
+        architecture_plan=state["architecture_plan"],
+        diagnosis=state["diagnosis"],
+        project_context=state["project_context"],
+    )
+
+    return {
+        "fix_plan": fix_plan,
+        "response": "Fix plan created.",
+    }
+
+
+def fix_executor(state: AgentState):
+    fix_results, fix_errors = execute_fix_plan(
+        fix_plan=state["fix_plan"],
+        diagnosis=state["diagnosis"],
+        workspace=state["project_root"],
+    )
+
+    return {
+        "execution_results": fix_results,
+        "execution_errors": fix_errors,
+        "retry_count": state["retry_count"] + 1,
+        "response": "Automatic fix executed.",
+    }
+
+
+def restore_snapshot(state: AgentState):
     """
-    Build and compile the SpongeBob AI agent graph.
+    Restore the Last-Known-Good snapshot after
+    automatic repair attempts are exhausted.
     """
 
+    snapshot_path = state["snapshot_path"]
+
+    snapshot_manager = ProjectSnapshot(
+        state["project_root"]
+    )
+
+    snapshot_manager.restore(
+        snapshot_path
+    )
+
+    return {
+        "response": (
+            "Automatic repair attempts exhausted. "
+            "Last-Known-Good snapshot restored."
+        )
+    }
+
+
+def route_after_validation(state: AgentState):
+    if state["validation_passed"]:
+        if state["retry_count"] > 0:
+            return "promote"
+
+        return "finish"
+
+    if state["retry_count"] >= MAX_RETRIES:
+        return "restore"
+
+    return "diagnosis"
+
+
+def route_after_diagnosis(state: AgentState):
+    diagnosis_result = state["diagnosis"]
+
+    if (
+        diagnosis_result.get("can_auto_fix") is True
+        and state["retry_count"] < MAX_RETRIES
+    ):
+        return "fix_planner"
+
+    return "restore"
+
+
+def general(state: AgentState):
+    return {
+        "response": (
+            "This request does not require "
+            "project implementation."
+        )
+    }
+
+
+def build_graph():
     graph = StateGraph(AgentState)
 
     graph.add_node(
@@ -182,13 +274,43 @@ def build_graph():
     )
 
     graph.add_node(
-        "general",
-        general_response,
+        "implementation",
+        implementation,
     )
 
     graph.add_node(
-        "other",
-        other_response,
+        "validation",
+        validation,
+    )
+
+    graph.add_node(
+        "diagnosis",
+        diagnosis,
+    )
+
+    graph.add_node(
+        "fix_planner",
+        fix_planner,
+    )
+
+    graph.add_node(
+        "fix_executor",
+        fix_executor,
+    )
+
+    graph.add_node(
+        "restore_snapshot",
+        restore_snapshot,
+    )
+
+    graph.add_node(
+        "promote_snapshot",
+        promote_snapshot,
+    )
+
+    graph.add_node(
+        "general",
+        general,
     )
 
     graph.add_edge(
@@ -202,7 +324,6 @@ def build_graph():
         {
             "requirements": "requirements",
             "general": "general",
-            "other": "other",
         },
     )
 
@@ -211,22 +332,62 @@ def build_graph():
         route_after_requirements,
         {
             "planner": "planner",
-            "finish": END,
+            END: END,
         },
     )
 
     graph.add_edge(
         "planner",
+        "implementation",
+    )
+
+    graph.add_edge(
+        "implementation",
+        "validation",
+    )
+
+    graph.add_conditional_edges(
+        "validation",
+        route_after_validation,
+        {
+            "finish": END,
+            "promote": "promote_snapshot",
+            "diagnosis": "diagnosis",
+            "restore": "restore_snapshot",
+        },
+    )
+
+    graph.add_conditional_edges(
+        "diagnosis",
+        route_after_diagnosis,
+        {
+            "fix_planner": "fix_planner",
+            "restore": "restore_snapshot",
+        },
+    )
+
+    graph.add_edge(
+        "fix_planner",
+        "fix_executor",
+    )
+
+    graph.add_edge(
+        "fix_executor",
+        "validation",
+    )
+
+    graph.add_edge(
+        "restore_snapshot",
+        END,
+    )
+
+    graph.add_edge(
+        "promote_snapshot",
         END,
     )
 
     graph.add_edge(
         "general",
-        END,
-    )
-
-    graph.add_edge(
-        "other",
         END,
     )
 

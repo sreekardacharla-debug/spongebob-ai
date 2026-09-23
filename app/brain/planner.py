@@ -1,10 +1,12 @@
 import json
 import re
 
-from app.llm.router import ModelRouter
+from app.llm.service import ModelService
+from app.security.identity import Identity
 
 
-router = ModelRouter()
+identity = Identity(user_id="owner", principal="owner")
+model_service = ModelService(identity=identity)
 
 
 def _extract_json(raw_result: str) -> dict:
@@ -170,6 +172,51 @@ CORE RULES
    An empty user_facts object means the user's preferences are UNKNOWN.
    It does NOT mean the user has no preferences.
 
+
+7. EXISTING PROJECT TECHNOLOGY:
+   When CURRENT PROJECT contains detected technologies or frameworks,
+   treat those detections as important environment facts.
+
+   Prefer extending and integrating with an existing project technology
+   instead of replacing it unnecessarily.
+
+   Examples:
+   - If an existing Vite frontend is detected, prefer using that frontend.
+   - If an existing Spring Boot backend is detected, prefer extending it.
+   - If an existing MySQL database is detected, prefer using MySQL.
+   - If Maven is detected, prefer the existing Maven build system.
+   - If PostgreSQL is detected, do not introduce MySQL without a concrete reason.
+
+   Do not claim that the user selected an existing technology unless
+   user_facts or delegated_decisions explicitly says so.
+
+   If the agent chooses to keep or extend an existing technology,
+   record that reasoning in agent_decisions.
+
+8. ENVIRONMENT AWARENESS:
+   Use ENVIRONMENT facts when selecting implementation tools.
+
+   Do not assume that a tool, runtime, package manager, database,
+   or command is installed merely because it is commonly used.
+
+   If an important dependency is unavailable, record the required
+   installation or setup in environment_decisions.
+
+9. MINIMIZE UNNECESSARY REPLACEMENT:
+   For an existing project, prefer modifying the smallest reasonable
+   set of files needed to satisfy the requirements.
+
+   Do not rebuild an existing application from scratch unless the
+   requirements or project condition justify it.
+
+10. TECHNOLOGY CONSISTENCY:
+    Frontend, backend, database, dependencies, files, implementation
+    steps, and validation_plan must describe one internally consistent
+    architecture.
+
+    Do not select technologies that conflict with detected project
+    facts without explaining the reason in agent_decisions.
+
 7. If a preference is unknown:
    - choose a reasonable default when the agent can safely do so,
    - use a delegated decision when the user gave SpongeBob permission
@@ -223,28 +270,27 @@ CORE RULES
     only one HTML page unless multiple pages are implemented through
     another explicitly described mechanism.
 
-25. Never claim that the user has a preference, permission, capability,
-    or decision unless it is explicitly present in user_facts or
-    delegated_decisions.
+ delegated_decisions, or the original requirements.
+ 25. SINGLE-PAGE ENFORCEMENT:
+    If architecture_summary describes the application as single-page,
+    files_to_create must contain exactly ONE .html file.
 
-26. If user_facts is empty, treat user preferences as UNKNOWN.
+26. MULTI-PAGE ENFORCEMENT:
+    If architecture_summary describes the application as multi-page,
+    multiple HTML pages are allowed.
 
-27. If delegated_decisions is empty, do not claim that the user
-    delegated any decision.
+27. Choose ONE architecture before generating the JSON.
+    Do not mix single-page and multi-page designs.
 
-28. Agent-selected technologies must be described as agent decisions,
-    not as user preferences.
+28. If the project is a simple portfolio and the user did not explicitly
+    request multiple pages, a single HTML page is an acceptable default.
 
-29. Agent assumptions must never be presented as facts about the user.
+29. The number and type of files in files_to_create must match the
+    architecture_summary and implementation_steps.
 
-30. Do not put statements such as:
-    - "The user prefers..."
-    - "The user is comfortable with..."
-    - "The user permits..."
-    - "The user can..."
-    - "The user wants..."
-    unless those facts are explicitly supported by user_facts,
-    delegated_decisions, or the original requirements.
+30. Before returning JSON, internally verify:
+    architecture_summary ↔ files_to_create ↔ implementation_steps
+    all describe the same architecture.
 
 31. If a technology or implementation choice is made by SpongeBob,
     record it under agent_decisions.
@@ -394,7 +440,7 @@ Do not use quotation marks inside JSON strings unless they are
 properly escaped.
 """
 
-    raw_result = router.generate(prompt)
+    raw_result = model_service.generate(prompt)
 
     result = _extract_json(raw_result)
 

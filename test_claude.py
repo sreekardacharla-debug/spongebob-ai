@@ -1,11 +1,9 @@
 from app.llm.claude import ClaudeProvider
 
 
-claude = ClaudeProvider()
+def test_claude_provider_configuration():
+    provider = ClaudeProvider()
 
-response = claude.generate(
-    "You are SpongeBob AI. Reply with one short sentence confirming that Claude is connected."
-)
-
-print("Claude response:")
-print(response)
+    assert provider.region == "us-east-1"
+    assert provider.model_id == "anthropic.claude-opus-5"
+    assert provider.client is not None

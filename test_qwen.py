@@ -1,32 +1,12 @@
-import boto3
+from app.llm.qwen import QwenProvider
 
 
-REGION = "us-east-1"
-MODEL_ID = "qwen.qwen3-coder-next"
+def test_qwen_provider_configuration():
+    provider = QwenProvider(
+        region="us-east-1",
+        model_id="qwen.qwen3-coder-next",
+    )
 
-
-client = boto3.client(
-    "bedrock-runtime",
-    region_name=REGION,
-)
-
-
-response = client.converse(
-    modelId=MODEL_ID,
-    messages=[
-        {
-            "role": "user",
-            "content": [
-                {
-                    "text": "Hello. You are the AI model powering SpongeBob AI. Reply with a short greeting."
-                }
-            ],
-        }
-    ],
-)
-
-
-text = response["output"]["message"]["content"][0]["text"]
-
-print("\nQwen response:")
-print(text)
+    assert provider.region == "us-east-1"
+    assert provider.model_id == "qwen.qwen3-coder-next"
+    assert provider.client is not None
