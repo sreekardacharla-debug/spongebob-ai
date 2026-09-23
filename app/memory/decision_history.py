@@ -24,6 +24,14 @@ class DecisionHistory:
         value: str,
         source: str = "user",
     ) -> DecisionRecord:
+        for record in reversed(self._records):
+            if (
+                record.decision == decision
+                and record.value == value
+                and record.source == source
+            ):
+                return record
+
         record = DecisionRecord(
             decision=decision,
             value=value,
