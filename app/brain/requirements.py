@@ -17,6 +17,16 @@ model_service = ModelService(
 decision_history = DecisionHistory()
 
 
+def reset_decision_history() -> None:
+    """Clear the in-process decision history for a fresh session."""
+    decision_history.clear()
+
+
+def get_decision_history() -> list[dict]:
+    """Return a serializable copy of the current decision history."""
+    return decision_history.all()
+
+
 VALID_ACTIONS = {
     "ASK_USER",
     "INFER",
