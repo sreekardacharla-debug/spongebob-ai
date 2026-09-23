@@ -2,21 +2,20 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.agent.state import AgentState
-
 from app.brain.understanding import understand_request
-from app.brain.requirements import analyze_requirements, get_decision_history
+from app.brain.requirements import (
+    analyze_requirements,
+    get_decision_history,
+)
 from app.brain.planner import create_architecture_plan
-
 from app.agent.implementation import execute_implementation
 from app.agent.validation import validate_execution
 from app.agent.diagnosis import diagnose_failure
 from app.agent.fix import create_fix_plan
 from app.agent.fix_executor import execute_fix_plan
-
 from app.project.inspector import inspect_project
 from app.project.environment import inspect_environment
 from app.project.snapshot import ProjectSnapshot
-
 
 MAX_RETRIES = 2
 
@@ -28,7 +27,6 @@ def understand(state: AgentState):
 def route_request(state: AgentState):
     if state["intent"] == "general_question":
         return "general"
-
     return "requirements"
 
 
@@ -43,24 +41,21 @@ def requirements(state: AgentState):
         unknowns=state["unknowns"],
         blocking_unknowns=state["blocking_unknowns"],
     )
-
-    result["decision_history"] = get_decision_history()
-    return result
+    return {
+        **result,
+        "decision_history": get_decision_history(),
+    }
 
 
 def route_after_requirements(state: AgentState):
     if state["requirements_complete"]:
         return "planner"
-
     return END
 
 
 def planner(state: AgentState):
-    project_root = state["project_root"]
-
-    project_context = inspect_project(project_root)
+    project_context = inspect_project(state["project_root"])
     environment_context = inspect_environment()
-
     architecture_plan = create_architecture_plan(
         goal=state["goal"],
         project_type=state["project_type"],
@@ -71,7 +66,6 @@ def planner(state: AgentState):
         project_context=project_context,
         environment_context=environment_context,
     )
-
     return {
         "project_context": project_context,
         "environment_context": environment_context,
@@ -81,18 +75,14 @@ def planner(state: AgentState):
 
 
 def implementation(state: AgentState):
-    project_root = state["project_root"]
-
-    snapshot_manager = ProjectSnapshot(project_root)
+    snapshot_manager = ProjectSnapshot(state["project_root"])
     snapshot_path = snapshot_manager.create()
-
     execution_results, execution_errors = execute_implementation(
         architecture_plan=state["architecture_plan"],
-        workspace=project_root,
+        workspace=state["project_root"],
         project_context=state["project_context"],
         environment_context=state["environment_context"],
     )
-
     return {
         "execution_results": execution_results,
         "execution_errors": execution_errors,
@@ -106,13 +96,11 @@ def validation(state: AgentState):
         project_root=state["project_root"],
         execution_results=state["execution_results"],
     )
-
     response = (
         "Implementation completed and validation passed."
         if validation_passed
         else "Implementation completed, but validation failed."
     )
-
     return {
         "validation_results": validation_results,
         "validation_passed": validation_passed,
@@ -121,9 +109,7 @@ def validation(state: AgentState):
 
 
 def promote_snapshot(state: AgentState):
-    snapshot_manager = ProjectSnapshot(state["project_root"])
-    snapshot_path = snapshot_manager.create()
-
+    snapshot_path = ProjectSnapshot(state["project_root"]).create()
     return {
         "snapshot_path": snapshot_path,
         "response": (
@@ -140,7 +126,6 @@ def diagnosis(state: AgentState):
         execution_errors=state["execution_errors"],
         validation_results=state["validation_results"],
     )
-
     return {
         "diagnosis": diagnosis_result,
         "response": "Implementation failure diagnosed.",
@@ -153,7 +138,6 @@ def fix_planner(state: AgentState):
         diagnosis=state["diagnosis"],
         project_context=state["project_context"],
     )
-
     return {
         "fix_plan": fix_plan,
         "response": "Fix plan created.",
@@ -166,7 +150,6 @@ def fix_executor(state: AgentState):
         diagnosis=state["diagnosis"],
         workspace=state["project_root"],
     )
-
     return {
         "execution_results": fix_results,
         "execution_errors": fix_errors,
@@ -176,9 +159,7 @@ def fix_executor(state: AgentState):
 
 
 def restore_snapshot(state: AgentState):
-    snapshot_manager = ProjectSnapshot(state["project_root"])
-    snapshot_manager.restore(state["snapshot_path"])
-
+    ProjectSnapshot(state["project_root"]).restore(state["snapshot_path"])
     return {
         "response": (
             "Automatic repair attempts exhausted. "
@@ -189,34 +170,25 @@ def restore_snapshot(state: AgentState):
 
 def route_after_validation(state: AgentState):
     if state["validation_passed"]:
-        if state["retry_count"] > 0:
-            return "promote"
-
-        return "finish"
-
+        return "promote" if state["retry_count"] > 0 else "finish"
     if state["retry_count"] >= MAX_RETRIES:
         return "restore"
-
     return "diagnosis"
 
 
 def route_after_diagnosis(state: AgentState):
-    diagnosis_result = state["diagnosis"]
-
     if (
-        diagnosis_result.get("can_auto_fix") is True
+        state["diagnosis"].get("can_auto_fix") is True
         and state["retry_count"] < MAX_RETRIES
     ):
         return "fix_planner"
-
     return "restore"
 
 
 def general(state: AgentState):
     return {
         "response": (
-            "This request does not require "
-            "project implementation."
+            "This request does not require project implementation."
         )
     }
 
@@ -237,28 +209,18 @@ def build_graph():
     graph.add_node("general", general)
 
     graph.add_edge(START, "understand")
-
     graph.add_conditional_edges(
         "understand",
         route_request,
-        {
-            "requirements": "requirements",
-            "general": "general",
-        },
+        {"requirements": "requirements", "general": "general"},
     )
-
     graph.add_conditional_edges(
         "requirements",
         route_after_requirements,
-        {
-            "planner": "planner",
-            END: END,
-        },
+        {"planner": "planner", END: END},
     )
-
     graph.add_edge("planner", "implementation")
     graph.add_edge("implementation", "validation")
-
     graph.add_conditional_edges(
         "validation",
         route_after_validation,
@@ -269,7 +231,6 @@ def build_graph():
             "restore": "restore_snapshot",
         },
     )
-
     graph.add_conditional_edges(
         "diagnosis",
         route_after_diagnosis,
@@ -278,7 +239,6 @@ def build_graph():
             "restore": "restore_snapshot",
         },
     )
-
     graph.add_edge("fix_planner", "fix_executor")
     graph.add_edge("fix_executor", "validation")
     graph.add_edge("restore_snapshot", END)
