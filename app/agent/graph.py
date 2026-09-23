@@ -16,12 +16,9 @@ from app.agent.fix_executor import execute_fix_plan
 from app.project.inspector import inspect_project
 from app.project.environment import inspect_environment
 from app.project.snapshot import ProjectSnapshot
-from app.memory.decision_history import DecisionHistory
 
 
 MAX_RETRIES = 2
-
-decision_history = DecisionHistory()
 
 
 def understand(state: AgentState):
@@ -47,14 +44,7 @@ def requirements(state: AgentState):
         blocking_unknowns=state["blocking_unknowns"],
     )
 
-    # analyze_requirements currently owns the session history object.
-    # Mirror it into graph state so downstream nodes can consume it.
-    from app.brain.requirements import decision_history as requirements_history
-
-    return {
-        **result,
-        "decision_history": requirements_history.all(),
-    }
+    return result
 
 
 def route_after_requirements(state: AgentState):
