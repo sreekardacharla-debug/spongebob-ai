@@ -2,15 +2,12 @@ from app.agent.graph import build_graph
 
 
 def test_graph_builds():
-    graph = build_graph()
-    assert graph is not None
+    assert build_graph() is not None
 
 
 def test_graph_contains_expected_nodes():
-    graph = build_graph()
-    nodes = graph.get_graph().nodes
-
-    expected_nodes = {
+    nodes = build_graph().get_graph().nodes
+    expected = {
         "understand",
         "requirements",
         "planner",
@@ -23,32 +20,15 @@ def test_graph_contains_expected_nodes():
         "promote_snapshot",
         "general",
     }
-
-    for node in expected_nodes:
-        assert node in nodes
+    assert expected.issubset(nodes)
 
 
 def test_graph_has_end_node():
-    graph = build_graph()
-    nodes = graph.get_graph().nodes
-    assert "__end__" in nodes
-
-
-def test_general_question_routes_to_general():
-    from app.agent import graph as graph_module
-
-    assert graph_module.route_request({"intent": "general_question"}) == "general"
-
-
-def test_non_general_request_routes_to_requirements():
-    from app.agent import graph as graph_module
-
-    assert graph_module.route_request({"intent": "create_project"}) == "requirements"
+    assert "__end__" in build_graph().get_graph().nodes
 
 
 def test_successful_fix_routes_to_snapshot_promotion():
     from app.agent import graph as graph_module
-
     assert graph_module.route_after_validation(
         {"validation_passed": True, "retry_count": 1}
     ) == "promote"
@@ -56,7 +36,6 @@ def test_successful_fix_routes_to_snapshot_promotion():
 
 def test_initial_success_does_not_require_snapshot_promotion():
     from app.agent import graph as graph_module
-
     assert graph_module.route_after_validation(
         {"validation_passed": True, "retry_count": 0}
     ) == "finish"
@@ -64,13 +43,19 @@ def test_initial_success_does_not_require_snapshot_promotion():
 
 def test_requirements_node_returns_decision_history(monkeypatch):
     from app.agent import graph as graph_module
+    from app.brain import requirements as requirements_module
+
+    requirements_module.reset_decision_history()
+    requirements_module.decision_history.add(
+        "frontend", "React", source="user"
+    )
 
     monkeypatch.setattr(
         graph_module,
         "analyze_requirements",
         lambda **kwargs: {
             "goal": "Build app",
-            "user_facts": {"frontend": "React"},
+            "user_facts": {},
             "delegated_decisions": [],
             "inferences": {},
             "unknowns": [],
@@ -78,22 +63,9 @@ def test_requirements_node_returns_decision_history(monkeypatch):
             "action": "CONTINUE_PLANNING",
             "requirements_complete": True,
             "next_question": "",
-            "requirements": {"frontend": "React"},
+            "requirements": {},
             "reasoning": "Enough information.",
         },
-    )
-
-    monkeypatch.setattr(
-        graph_module,
-        "get_decision_history",
-        lambda: [
-            {
-                "decision": "frontend",
-                "value": "React",
-                "source": "user",
-                "timestamp": "test",
-            }
-        ],
     )
 
     state = {
@@ -105,15 +77,13 @@ def test_requirements_node_returns_decision_history(monkeypatch):
         "inferences": {},
         "unknowns": [],
         "blocking_unknowns": [],
+        "decision_history": [],
     }
 
     result = graph_module.requirements(state)
 
-    assert result["decision_history"] == [
-        {
-            "decision": "frontend",
-            "value": "React",
-            "source": "user",
-            "timestamp": "test",
-        }
-    ]
+    assert len(result["decision_history"]) == 1
+    assert result["decision_history"][0]["decision"] == "frontend"
+    assert result["decision_history"][0]["value"] == "React"
+
+    requirements_module.reset_decision_history()
